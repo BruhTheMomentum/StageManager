@@ -2,7 +2,7 @@
 
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
-		<TargetFramework>net8.0-windows</TargetFramework>
+		<TargetFramework>net9.0-windows</TargetFramework>
 		<Nullable>enable</Nullable>
 		<UseWPF>true</UseWPF>
 		<UseWindowsForms>true</UseWindowsForms>
@@ -14,11 +14,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="AsyncAwaitBestPractices" Version="6.0.6" />
-		<PackageReference Include="ControlzEx" Version="4.4.0" />
-		<PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="1.1.0" />
-		<PackageReference Include="SharpHook" Version="4.2.1" />
-		<PackageReference Include="WpfScreenHelper" Version="2.1.0" />
+		<PackageReference Include="AsyncAwaitBestPractices" Version="9.0.0" />
+		<PackageReference Include="ControlzEx" Version="7.0.1" />
+		<PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
+		<PackageReference Include="SharpHook" Version="6.1.2" />
+		<PackageReference Include="WpfScreenHelper" Version="2.1.1" />
 	</ItemGroup>
 
 </Project>

@@ -10,7 +10,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using ControlzEx.Standard;
+using StageManager.Native.Interop;
 using System;
 using System.Windows;
 using System.Windows.Interop;
@@ -32,11 +32,15 @@ namespace StageManager.Native
 				var hwndSource = PresentationSource.FromVisual(visual) as HwndSource;
 				if (hwndSource != null && !hwndSource.IsDisposed && hwndSource.RootVisual != null && hwndSource.Handle != IntPtr.Zero)
 				{
-					IntPtr intPtr = NativeMethods.MonitorFromWindow(hwndSource.Handle, MonitorOptions.MONITOR_DEFAULTTONEAREST);
+					IntPtr intPtr = NativeMethods.MonitorFromWindow(hwndSource.Handle, (uint)NativeMethods.MonitorOptions.MONITOR_DEFAULTTONEAREST);
 					if (intPtr != IntPtr.Zero)
 					{
-						var monitorInfoW = NativeMethods.GetMonitorInfoW(intPtr);
-						return new Size(monitorInfoW.rcWork.Width, monitorInfoW.rcWork.Height);
+						var monitorInfo = new NativeMethods.MONITORINFOEX();
+						monitorInfo.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.MONITORINFOEX));
+						if (NativeMethods.GetMonitorInfoW(intPtr, ref monitorInfo))
+						{
+							return new Size(monitorInfo.rcWork.Width, monitorInfo.rcWork.Height);
+						}
 					}
 				}
 			}
