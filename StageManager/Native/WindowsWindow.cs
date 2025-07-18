@@ -168,10 +168,19 @@ namespace StageManager.Native
 		{
 			get
 			{
+				// Determine if the window exposes UI chrome that allows the user to move it. Stationary windows
+				// (e.g. menu bar pop-ups, tool windows without a caption or frame) lack these style flags and should
+				// therefore be excluded from layout management and scene handling.
+				var style = Win32.GetWindowStyleLongPtr(_handle);
+				bool canMove = style.HasFlag(Win32.WS.WS_CAPTION) ||
+				               style.HasFlag(Win32.WS.WS_THICKFRAME) ||
+				               style.HasFlag(Win32.WS.WS_MINIMIZEBOX);
+
 				return _didManualHide ||
 					(!Win32Helper.IsCloaked(_handle) /* https://devblogs.microsoft.com/oldnewthing/20200302-00/?p=103507 */ &&
 					   Win32Helper.IsAppWindow(_handle) &&
-					   Win32Helper.IsAltTabWindow(_handle));
+					   Win32Helper.IsAltTabWindow(_handle) &&
+					   canMove);
 			}
 		}
 
