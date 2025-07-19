@@ -172,17 +172,28 @@ namespace StageManager.Native
 				// (e.g. menu bar pop-ups, tool windows without a caption or frame) lack these style flags and should
 				// therefore be excluded from layout management and scene handling.
 				var style = Win32.GetWindowStyleLongPtr(_handle);
-				bool canMove = style.HasFlag(Win32.WS.WS_CAPTION) ||
-				               style.HasFlag(Win32.WS.WS_THICKFRAME) ||
-				               style.HasFlag(Win32.WS.WS_MINIMIZEBOX);
+
+				// Require both minimize & maximize boxes.  Windows that provide these buttons will
+				// always also surface a close button even if they don’t set WS_SYSMENU (Chromium,
+				// VS Code, etc.).
+				bool hasCaptionControls = style.HasFlag(Win32.WS.WS_MINIMIZEBOX) &&
+										  style.HasFlag(Win32.WS.WS_MAXIMIZEBOX) &&
+										  style.HasFlag(Win32.WS.WS_CAPTION);
+
+				// We experimented with runtime accessibility checks (GetTitleBarInfo) but that
+				// excluded legitimate windows that draw a custom title bar. Rely solely on
+				// style bits again while relying on explicit process/class ignore lists for
+				// special-case pop-ups.
 
 				return _didManualHide ||
 					(!Win32Helper.IsCloaked(_handle) /* https://devblogs.microsoft.com/oldnewthing/20200302-00/?p=103507 */ &&
 					   Win32Helper.IsAppWindow(_handle) &&
 					   Win32Helper.IsAltTabWindow(_handle) &&
-					   canMove);
+					   hasCaptionControls);
 			}
 		}
+
+		// Removed AreCaptionButtonsVisible – see comment above.
 
 		public bool IsCandidate()
 		{
@@ -213,7 +224,8 @@ namespace StageManager.Native
 				"SearchApp",
 				"SearchHost", // Windows 11 search
 				"search", // Windows 11 RTM search
-				"ScreenClippingHost"
+				"ScreenClippingHost",
+				"Microsoft.CmdPal.UI" // VS ‘Command Palette’ floating window
 			};
 
 			if (ignoreProcesses.Contains(ProcessName))

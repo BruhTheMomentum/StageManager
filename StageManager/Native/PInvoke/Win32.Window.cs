@@ -229,6 +229,24 @@ namespace StageManager.Native.PInvoke
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool LockSetForegroundWindow(uint uLockCode);
 
+		// ---------------------------
+		// TITLE BAR INFORMATION
+		// ---------------------------
+		public const uint STATE_SYSTEM_INVISIBLE = 0x00008000;
+
+		[StructLayout(LayoutKind.Sequential)]
+		public struct TITLEBARINFO
+		{
+			public uint cbSize;
+			public Rect rcTitleBar;
+			[MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)]
+			public uint[] rgstate;
+		}
+
+		[DllImport("user32.dll")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		public static extern bool GetTitleBarInfo(IntPtr hwnd, ref TITLEBARINFO pti);
+
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool BringWindowToTop(IntPtr hWnd);
 

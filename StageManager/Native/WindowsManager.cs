@@ -29,6 +29,22 @@ namespace StageManager.Native
 		private IntPtr _currentProcessWindowHandle;
 		private int _currentProcessId;
 
+#if DEBUG
+		// Set this to true while debugging to dump detailed information about how each window is
+		// evaluated for scene eligibility. The output is written via Debug.WriteLine.
+		private const bool DEBUG_WINDOW_FILTER = true;
+
+		private static string FormatStyleFlags(Win32.WS style)
+		{
+			var flags = new List<string>();
+			if (style.HasFlag(Win32.WS.WS_SYSMENU)) flags.Add("SYSMENU");
+			if (style.HasFlag(Win32.WS.WS_MINIMIZEBOX)) flags.Add("MINBOX");
+			if (style.HasFlag(Win32.WS.WS_MAXIMIZEBOX)) flags.Add("MAXBOX");
+			if (style.HasFlag(Win32.WS.WS_CAPTION)) flags.Add("CAPTION");
+			if (style.HasFlag(Win32.WS.WS_THICKFRAME)) flags.Add("THICKFRAME");
+			return string.Join("|", flags);
+		}
+#endif
 		/// <summary>
 		/// Notifies when a new window handle was created by the manager
 		/// </summary>
@@ -216,7 +232,23 @@ namespace StageManager.Native
 				if (window.ProcessId < 0 || window.ProcessId == _currentProcessId)
 					return;
 
-				if (window.IsCandidate())
+#if DEBUG
+				if (DEBUG_WINDOW_FILTER)
+				{
+					var preStyle = Win32.GetWindowStyleLongPtr(handle);
+					Debug.WriteLine($"[WindowFilter] PRE     0x{((long)preStyle):X8} [{FormatStyleFlags(preStyle)}] {window}");
+				}
+#endif
+				bool candidate = window.IsCandidate();
+
+#if DEBUG
+				if (DEBUG_WINDOW_FILTER)
+				{
+					Debug.WriteLine($"[WindowFilter] {(candidate ? "ACCEPT" : "REJECT")} {window}");
+				}
+#endif
+
+				if (candidate)
 				{
 					window.WindowFocused += (sender) => HandleWindowFocused(sender);
 					window.WindowUpdated += (sender) => HandleWindowUpdated(sender);
