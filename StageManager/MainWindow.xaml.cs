@@ -108,6 +108,13 @@ namespace StageManager
 
 		private void SceneManager_CurrentSceneSelectionChanged(object? sender, CurrentSceneSelectionChangedEventArgs args)
 		{
+			// Ensure we are on the UI/Dispatcher thread before mutating observable collections bound to UI
+			if (!Dispatcher.CheckAccess())
+			{
+				Dispatcher.Invoke(() => SceneManager_CurrentSceneSelectionChanged(sender, args));
+				return;
+			}
+
 			var currentModel = args.Current is null ? null : Scenes.FirstOrDefault(m => m.Id == args.Current.Id);
 
 			if (currentModel is object)

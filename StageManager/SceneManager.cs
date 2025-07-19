@@ -18,6 +18,8 @@ namespace StageManager
 		private Scene _current;
 		private bool _suspend = false;
 		private Guid? _reentrancyLockSceneId;
+		private Scene _lastScene; // remembers the scene that was active before desktop view
+		private DateTime _lastDesktopToggle = DateTime.MinValue;
 
 		public event EventHandler<SceneChangedEventArgs> SceneChanged;
 		public event EventHandler<CurrentSceneSelectionChangedEventArgs> CurrentSceneSelectionChanged;
@@ -73,11 +75,29 @@ namespace StageManager
 			if (_suspend)
 				return;
 
+			// Debounce: ignore rapid successive focus changes (within 250 ms)
+			var now = DateTime.Now;
+			if ((now - _lastDesktopToggle).TotalMilliseconds < 250)
+				return;
+
+			// Remember potential desktop view handle once (optional, not strictly needed for toggling)
 			if (!_desktop.HasDesktopView)
 				_desktop.TrySetDesktopView(e);
 
-			if (_desktop.HasDesktopView && _desktop.DesktopViewHandle == e)
+			// Toggle between current scene and desktop irrespective of exact handle
+			if (_current is null)
+			{
+				if (_lastScene is object)
+				{
+					_lastDesktopToggle = now;
+					SwitchTo(_lastScene).SafeFireAndForget();
+				}
+			}
+			else
+			{
+				_lastDesktopToggle = now;
 				SwitchTo(null).SafeFireAndForget();
+			}
 		}
 
 		private void WindowsManager_WindowDestroyed(IWindow window)
@@ -204,9 +224,15 @@ namespace StageManager
 				CurrentSceneSelectionChanged?.Invoke(this, new CurrentSceneSelectionChangedEventArgs(prior, _current));
 
 				if (scene is null)
+				{
+					_lastScene = prior;
 					_desktop.ShowIcons();
+				}
 				else
+				{
+					_lastScene = null;
 					_desktop.HideIcons();
+				}
 			}
 			finally
 			{

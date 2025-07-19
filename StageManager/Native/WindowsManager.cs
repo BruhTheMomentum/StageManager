@@ -164,7 +164,10 @@ namespace StageManager.Native
 		private IntPtr MouseHook(int nCode, UIntPtr wParam, IntPtr lParam)
 		{
 			if (nCode == 0 && (uint)wParam == Win32.WM_LBUTTONUP)
+			{
 				HandleWindowMoveEnd();
+				// We rely on EVENT_SYSTEM_FOREGROUND win events to detect focus changes.
+			}
 
 			return Win32.CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
 		}
