@@ -34,15 +34,8 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 9.0.x
-        cache: true          # built-in NuGet cache
-
-    - name: Cache additional NuGet packages (fallback)
-      uses: actions/cache@v4
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
+        cache: true
+        cache-dependency-path: '**/*.csproj'
 
     - name: Restore dependencies
       run: dotnet restore ${{ env.Solution_Name }}
@@ -75,14 +68,7 @@ jobs:
       with:
         dotnet-version: 9.0.x
         cache: true
-
-    - name: Cache additional NuGet packages (fallback)
-      uses: actions/cache@v4
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
+        cache-dependency-path: '**/*.csproj'
 
     - name: Restore dependencies
       run: dotnet restore ${{ env.Solution_Name }}
