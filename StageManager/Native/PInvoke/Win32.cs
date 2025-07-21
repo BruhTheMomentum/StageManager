@@ -106,5 +106,11 @@ namespace StageManager.Native.PInvoke
 
         public const uint GENERIC_WRITE = 0x40000000;
         public const uint GENERIC_READ = 0x80000000;
+
+        public static readonly uint LVM_FIRST = 0x1000;
+        public static readonly uint LVM_GETSELECTEDCOUNT = LVM_FIRST + 50; // 0x1032
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
     }
 }

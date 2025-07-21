@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text;
 
 namespace StageManager
 {
@@ -20,6 +21,7 @@ namespace StageManager
 		private Guid? _reentrancyLockSceneId;
 		private Scene _lastScene; // remembers the scene that was active before desktop view
 		private DateTime _lastDesktopToggle = DateTime.MinValue;
+		private IWindow _lastFocusedWindow;
 
 		public event EventHandler<SceneChangedEventArgs> SceneChanged;
 		public event EventHandler<CurrentSceneSelectionChangedEventArgs> CurrentSceneSelectionChanged;
@@ -44,6 +46,7 @@ namespace StageManager
 			WindowsManager.WindowUpdated += WindowsManager_WindowUpdated;
 			WindowsManager.WindowDestroyed += WindowsManager_WindowDestroyed;
 			WindowsManager.UntrackedFocus += WindowsManager_UntrackedFocus;
+			WindowsManager.DesktopShortClick += WindowsManager_DesktopShortClick;
 
 			await WindowsManager.Start();
 		}
@@ -67,35 +70,95 @@ namespace StageManager
 				return;
 
 			if (type == WindowUpdateType.Foreground)
+			{
+				_lastFocusedWindow = window; // remember for scene restore
 				SwitchToSceneByWindow(window).SafeFireAndForget();
+			}
+		}
+
+		private bool IsBlankDesktopClick(IntPtr handle)
+		{
+			// Determine window class
+			var sb = new StringBuilder(256);
+			Win32.GetClassName(handle, sb, sb.Capacity);
+			var cls = sb.ToString();
+
+			// Ignore taskbar / other common shells
+			if (string.Equals(cls, "Shell_TrayWnd", StringComparison.OrdinalIgnoreCase) ||
+				string.Equals(cls, "TrayNotifyWnd", StringComparison.OrdinalIgnoreCase))
+				return false;
+
+			// Helper local function to evaluate selection count on a SysListView32 window
+			static bool IsListViewSelectionEmpty(IntPtr listView)
+			{
+				if (listView == IntPtr.Zero)
+					return true;
+
+				var sel = Win32.SendMessage(listView, Win32.LVM_GETSELECTEDCOUNT, IntPtr.Zero, IntPtr.Zero);
+				return sel == IntPtr.Zero;
+			}
+
+			// Desktop background container windows (WorkerW/Progman)
+			if (string.Equals(cls, "WorkerW", StringComparison.OrdinalIgnoreCase) ||
+				string.Equals(cls, "Progman", StringComparison.OrdinalIgnoreCase))
+			{
+				// A click on these windows is only considered a blank desktop click when
+				// no desktop icons are currently selected. Otherwise it is an icon click.
+
+				// Find the SHELLDLL_DefView child hosting the desktop list view
+				var shell = Desktop.FindWindowEx(handle, IntPtr.Zero, "SHELLDLL_DefView", null);
+				// Within the DefView find the SysListView32 control that displays the icons
+				var listView = shell != IntPtr.Zero ? Desktop.FindWindowEx(shell, IntPtr.Zero, "SysListView32", null) : IntPtr.Zero;
+
+				return IsListViewSelectionEmpty(listView);
+			}
+
+			// Desktop icon view (list view) – ensure no icon is selected
+			if (string.Equals(cls, "SysListView32", StringComparison.OrdinalIgnoreCase) ||
+				string.Equals(cls, "SHELLDLL_DefView", StringComparison.OrdinalIgnoreCase))
+			{
+				return IsListViewSelectionEmpty(handle);
+			}
+
+			return false;
 		}
 
 		private void WindowsManager_UntrackedFocus(object? sender, IntPtr e)
 		{
-			if (_suspend)
+			// Let dedicated mouse-click handler manage desktop toggling.
+			if (IsBlankDesktopClick(e))
 				return;
 
-			// Debounce: ignore rapid successive focus changes (within 250 ms)
-			var now = DateTime.Now;
-			if ((now - _lastDesktopToggle).TotalMilliseconds < 250)
-				return;
-
-			// Remember potential desktop view handle once (optional, not strictly needed for toggling)
+			// Potentially remember desktop view handle for future use
 			if (!_desktop.HasDesktopView)
 				_desktop.TrySetDesktopView(e);
 
-			// Toggle between current scene and desktop irrespective of exact handle
+			// No scene switching here – handled by DesktopShortClick or other logic.
+		}
+
+		private void WindowsManager_DesktopShortClick(object? sender, IntPtr handle)
+		{
+			if (_suspend)
+				return;
+
+			// Only treat clicks on truly blank desktop areas as a toggle trigger
+			if (!IsBlankDesktopClick(handle))
+				return;
+
+			// Debounce additional toggles happening too quickly (double-click already filtered by WindowsManager)
+			var now = DateTime.Now;
+			if ((now - _lastDesktopToggle).TotalMilliseconds < 100)
+				return;
+
+			_lastDesktopToggle = now;
+
 			if (_current is null)
 			{
 				if (_lastScene is object)
-				{
-					_lastDesktopToggle = now;
 					SwitchTo(_lastScene).SafeFireAndForget();
-				}
 			}
 			else
 			{
-				_lastDesktopToggle = now;
 				SwitchTo(null).SafeFireAndForget();
 			}
 		}
@@ -200,6 +263,8 @@ namespace StageManager
 			if (IsReentrancy(scene))
 				return;
 
+			IWindow focusCandidate = null;
+
 			try
 			{
 				_suspend = true;
@@ -210,12 +275,18 @@ namespace StageManager
 				_current = scene;
 
 				foreach (var s in _scenes)
-					s.IsSelected = s.Equals(scene);
+					{s.IsSelected = s.Equals(scene);}
 
 				if (scene is object)
 				{
 					foreach (var w in scene.Windows)
 						WindowStrategy.Show(w);
+
+					// Determine which window should get focus after restore
+					if (_lastFocusedWindow is object && scene.Windows.Contains(_lastFocusedWindow))
+						focusCandidate = _lastFocusedWindow;
+					else
+						focusCandidate = scene.Windows.FirstOrDefault();
 				}
 
 				foreach (var o in otherWindows)
@@ -237,6 +308,10 @@ namespace StageManager
 			finally
 			{
 				_suspend = false;
+
+				// Apply focus once suspension lifted
+				if (focusCandidate is object)
+					focusCandidate.Focus();
 			}
 		}
 

@@ -89,6 +89,17 @@ namespace StageManager
 
 			AddInitialScenes();
 
+			// Schedule a late initialization pass to recalculate thumbnail sizes after all window information is available.
+			_ = Task.Run(async () =>
+			{
+				await Task.Delay(2000).ConfigureAwait(false);
+				Dispatcher.Invoke(() =>
+				{
+					foreach (var scene in Scenes)
+						scene.UpdatePreviewSizes();
+				});
+			});
+
 			var foreground = Win32.GetForegroundWindow();
 			var foregroundScene = SceneManager.FindSceneForWindow(foreground);
 			if (foregroundScene is object)

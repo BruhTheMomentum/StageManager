@@ -81,6 +81,38 @@ namespace StageManager.Model
 
 		public ImageSource Icon => _iconSource ??= IconToImageSource((Window as WindowsWindow).ExtractIcon());
 
+		// Scaled dimensions for the DWM thumbnail preview. These are updated by the owning SceneModel
+		// whenever the window collection is (re)evaluated so that the preview keeps the correct aspect
+		// ratio relative to other windows in the same scene.
+		private double _previewWidth = 120; // default fallback
+		private double _previewHeight = 90; // default fallback
+
+		public double PreviewWidth
+		{
+			get => _previewWidth;
+			set
+			{
+				if (Math.Abs(_previewWidth - value) > 0.1)
+				{
+					_previewWidth = value;
+					RaisePropertyChanged();
+				}
+			}
+		}
+
+		public double PreviewHeight
+		{
+			get => _previewHeight;
+			set
+			{
+				if (Math.Abs(_previewHeight - value) > 0.1)
+				{
+					_previewHeight = value;
+					RaisePropertyChanged();
+				}
+			}
+		}
+
 		public IWindow Window
 		{
 			get => _window;

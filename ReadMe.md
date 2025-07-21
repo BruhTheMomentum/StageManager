@@ -1,8 +1,8 @@
-# Stage Manager for Windows
+# [WIP] Stage Manager for Windows
 
-This is an experimental approach to bring the macOS [Stage Manager](https://support.apple.com/en-us/HT213315) to Microsoft Windows.
+This is an experimental approach to bring the macOS [Stage Manager](https://support.apple.com/en-us/HT213315) to Microsoft Windows with context menu in the menubar.
 
-> **Important:** This is a prototype and a feasibility study - I am not actively developing this project at the moment but I'd be happy to review and merge pull requests. 
+> **Important:** Currently WIP, being polished as you read this. 
 
 ![Stage Manager](media/StageManager%20Basics.gif)
 
@@ -16,16 +16,12 @@ Download and run the executable from the [Releases tab](https://github.com/awaes
  - clone this repository
  - cd into the repository directory
  - run `dotnet run --project StageManager`
-
-To quit, find the app's tray icon (Windows might move it into the overflow menu) and use its context menu to close the app.
  
 ### Requirements
- - Windows 10 version 2004 or newer
- - [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download)
+ - Windows 10 version 1607 (Anniversary Update, build 14393) or newer
+ - [.NET 9 SDK](https://dotnet.microsoft.com/en-us/download)
 
 ## To do
-
-This is an experimental fun project. I don't have any idea whether or not this is going to be a final product one day. 
 
 |Topic|State|
 |-|-|

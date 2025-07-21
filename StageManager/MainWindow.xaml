@@ -5,6 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:local="clr-namespace:StageManager"
+    xmlns:conv="clr-namespace:StageManager.Converters"
     xmlns:i="http://schemas.microsoft.com/xaml/behaviors"
     xmlns:tb="http://www.hardcodet.net/taskbar"
     mc:Ignorable="d"
@@ -42,6 +43,8 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <conv:IndexToOffsetMarginConverter x:Key="IndexToOffsetMarginConverter" />
+        <conv:IndexToZIndexConverter x:Key="IndexToZIndexConverter" />
     </Window.Resources>
     <StackPanel
         VerticalAlignment="Center">
@@ -66,7 +69,8 @@
                         </i:Interaction.Triggers>
                         <!-- Windows -->
                         <ItemsControl
-                            ItemsSource="{Binding Windows}">
+                            ItemsSource="{Binding Windows}"
+                            AlternationCount="1000">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <Grid
@@ -77,9 +81,10 @@
                                 <DataTemplate>
                                     <local:DwmThumbnail
                                         PreviewHandle="{Binding Handle}"
-                                        MinHeight="100"
-                                        MinWidth="150"
-                                        Margin="0, 0, 0, 0" />
+                                        Width="{Binding PreviewWidth}"
+                                        Height="{Binding PreviewHeight}"
+                                        Margin="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ContentPresenter}, Converter={StaticResource IndexToOffsetMarginConverter}}"
+                                        Panel.ZIndex="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ContentPresenter}, Converter={StaticResource IndexToZIndexConverter}}" />
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -88,7 +93,8 @@
                             VerticalAlignment="Center"
                             HorizontalAlignment="Center"
                             Margin="0,4,0,24"
-                            ItemsSource="{Binding Windows}">
+                            ItemsSource="{Binding Windows}"
+                            AlternationCount="1000">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <StackPanel

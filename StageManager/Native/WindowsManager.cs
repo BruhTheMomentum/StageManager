@@ -28,6 +28,18 @@ namespace StageManager.Native
 		private Dictionary<WindowsWindow, bool> _floating;
 		private IntPtr _currentProcessWindowHandle;
 		private int _currentProcessId;
+		private DateTime _lastLeftButtonDown;
+		// Double-click handling to suppress scene toggle when user double-clicks a desktop item
+		private readonly int _doubleClickTime; // system double-click time in ms
+		private bool _desktopClickPending;
+		private DateTime _desktopClickTime;
+		private IntPtr _desktopClickHandle;
+		private readonly object _desktopClickLock = new object();
+		/// <summary>
+		/// Raised after a completed < 250 ms left-button click when the desktop (WorkerW/Progman) is the foreground window.
+		/// The <see cref="IntPtr"/> argument is the handle of the desktop window that had focus.
+		/// </summary>
+		public event EventHandler<IntPtr> DesktopShortClick;
 
 #if DEBUG
 		// Set this to true while debugging to dump detailed information about how each window is
@@ -86,6 +98,9 @@ namespace StageManager.Native
 			_windows = new Dictionary<IntPtr, WindowsWindow>();
 			_floating = new Dictionary<WindowsWindow, bool>();
 			_hookDelegate = new WinEventDelegate(WindowHook);
+
+			// Cache system double-click time for later use
+			_doubleClickTime = (int)100;
 		}
 
 		public Task Start()
@@ -163,10 +178,66 @@ namespace StageManager.Native
 
 		private IntPtr MouseHook(int nCode, UIntPtr wParam, IntPtr lParam)
 		{
-			if (nCode == 0 && (uint)wParam == Win32.WM_LBUTTONUP)
+			if (nCode == 0)
 			{
-				HandleWindowMoveEnd();
-				// We rely on EVENT_SYSTEM_FOREGROUND win events to detect focus changes.
+				var msg = (uint)wParam;
+
+				if (msg == Win32.WM_LBUTTONDOWN)
+				{
+					// If we already have a desktop click pending and another click starts within the
+					// double-click interval, treat it as a double-click and cancel the pending action.
+					lock (_desktopClickLock)
+					{
+						if (_desktopClickPending && (DateTime.Now - _desktopClickTime).TotalMilliseconds <= _doubleClickTime)
+						{
+							_desktopClickPending = false; // cancel pending single click
+						}
+					}
+
+					_lastLeftButtonDown = DateTime.Now;
+				}
+				else if (msg == Win32.WM_LBUTTONUP)
+				{
+					HandleWindowMoveEnd();
+
+					// Detect short click (<250 ms) and desktop in foreground
+					var clickDuration = DateTime.Now - _lastLeftButtonDown;
+					if (clickDuration.TotalMilliseconds < 250)
+					{
+						var foreground = Win32.GetForegroundWindow();
+						if (foreground != IntPtr.Zero)
+						{
+							// Check class name of the foreground window
+							var buffer = new System.Text.StringBuilder(256);
+							Win32.GetClassName(foreground, buffer, buffer.Capacity);
+							var cls = buffer.ToString();
+							if (cls == "WorkerW" || cls == "Progman")
+							{
+								// Schedule the desktop click after the system double-click interval.
+								// This allows us to detect and ignore double-clicks on desktop items.
+								lock (_desktopClickLock)
+								{
+									_desktopClickPending = true;
+									_desktopClickTime = DateTime.Now;
+									_desktopClickHandle = foreground;
+								}
+
+								Task.Run(async () =>
+								{
+									await Task.Delay(_doubleClickTime);
+									lock (_desktopClickLock)
+									{
+										if (_desktopClickPending && (DateTime.Now - _desktopClickTime).TotalMilliseconds >= _doubleClickTime)
+										{
+											DesktopShortClick?.Invoke(this, _desktopClickHandle);
+										}
+										_desktopClickPending = false;
+									}
+								});
+							}
+						}
+					}
+				}
 			}
 
 			return Win32.CallNextHookEx(IntPtr.Zero, nCode, wParam, lParam);
