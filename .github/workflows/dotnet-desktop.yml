@@ -2,10 +2,7 @@ name: StageManager CI
 
 on:
   push:
-    branches: [ "main" ]
     tags: [ "v*" ]
-  pull_request:
-    branches: [ "main" ]
   schedule:
     - cron: "0 8 * * 1" # Weekly Monday 08:00 UTC
 
@@ -13,39 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  # --------------------------------------------------------
-  # Debug build for PR validation
-  # --------------------------------------------------------
-  build-debug:
-    if: github.event_name == 'pull_request'
-    runs-on: windows-latest
-
-    env:
-      Solution_Name: StageManager.sln
-      Configuration: Debug
-
-    steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Setup .NET SDK
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 9.0.x
-        cache: true
-        cache-dependency-path: '**/*.csproj'
-
-    - name: Restore dependencies
-      run: dotnet restore ${{ env.Solution_Name }}
-
-    - name: Build (Debug)
-      run: dotnet build ${{ env.Solution_Name }} --configuration ${{ env.Configuration }} --no-restore -p:Version=${{ github.run_number }}
-
-    - name: Run tests
-      run: dotnet test --configuration ${{ env.Configuration }} --no-build
-
   # --------------------------------------------------------
   # Release build for pushes & tags on main
   # --------------------------------------------------------
