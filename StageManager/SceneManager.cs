@@ -26,7 +26,8 @@ namespace StageManager
 		public event EventHandler<SceneChangedEventArgs> SceneChanged;
 		public event EventHandler<CurrentSceneSelectionChangedEventArgs> CurrentSceneSelectionChanged;
 
-		private IWindowStrategy WindowStrategy { get; } = new NormalizeAndMinimizeWindowStrategy(); // new WindowNormalizeStrategy/OpacityWindowStrategy/ShowAndHideWindowStrategy
+		// Use full-transparency instead of minimising so hidden windows keep repainting and thumbnails stay live.
+		private IWindowStrategy WindowStrategy { get; } = new OpacityWindowStrategy();
 
 		public WindowsManager WindowsManager { get; }
 
@@ -55,10 +56,22 @@ namespace StageManager
 		{
 			WindowsManager.Stop();
 
+			// Determine which window should stay visible (e.g. the one that currently has focus)
+			var exemptHandle = _lastFocusedWindow?.Handle ?? Win32.GetForegroundWindow();
+
 			foreach (var scene in _scenes)
 			{
 				foreach (var w in scene.Windows)
+				{
+					// Restore full opacity so windows become visible again
 					WindowStrategy.Show(w);
+
+					// Minimise every window except the one that should remain visible
+					if (w.Handle != exemptHandle)
+					{
+						w.ShowMinimized();
+					}
+				}
 			}
 
 			_desktop.ShowIcons();

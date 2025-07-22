@@ -7,7 +7,7 @@
 		<UseWPF>true</UseWPF>
 		<UseWindowsForms>true</UseWindowsForms>
 		<ApplicationIcon>StageManager.ico</ApplicationIcon>
-		<Version>0.5.1</Version>
+		<Version>0.5.4</Version>
 	</PropertyGroup>
 
 	<ItemGroup>
