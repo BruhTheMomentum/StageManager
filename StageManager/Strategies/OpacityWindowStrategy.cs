@@ -30,6 +30,37 @@ namespace StageManager.Strategies
 		// Remember original on-screen position when we had to move the window off-screen
 		private static readonly Dictionary<IntPtr, (int X, int Y)> _originalPositions = new();
 
+		private const int AnimationDurationMs = 200; // total duration for fade animation
+		private const int AnimationSteps = 20;      // number of alpha steps – higher = smoother
+
+		// Helper to run fade animation without blocking the UI thread
+		private static void FadeWindow(IntPtr hWnd, byte fromAlpha, byte toAlpha)
+		{
+			// Ensure window stays layered so alpha changes take effect
+			if ((GetWindowLong(hWnd, GWL_EXSTYLE) & WS_EX_LAYERED) == 0)
+			{
+				SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
+			}
+
+			int step = (toAlpha - fromAlpha) / AnimationSteps;
+			if (step == 0) step = toAlpha > fromAlpha ? 1 : -1;
+			int delay = AnimationDurationMs / AnimationSteps;
+
+			System.Threading.Tasks.Task.Run(() =>
+			{
+				byte alpha = fromAlpha;
+				for (int i = 0; i < AnimationSteps; i++)
+				{
+					SetLayeredWindowAttributes(hWnd, 0, (byte)alpha, LWA_ALPHA);
+					alpha = (byte)(alpha + step);
+					System.Threading.Thread.Sleep(delay);
+				}
+
+				// Ensure final alpha value is set precisely
+				SetLayeredWindowAttributes(hWnd, 0, toAlpha, LWA_ALPHA);
+			});
+		}
+
 		public void Show(IWindow window)
 		{
 			var hWnd = window.Handle;
@@ -52,15 +83,20 @@ namespace StageManager.Strategies
 				_originalPositions.Remove(hWnd);
 			}
 
+			// Force-remove WS_EX_TRANSPARENT (mouse-through) in case anything went wrong previously
+			int clearedStyle = GetWindowLong(hWnd, GWL_EXSTYLE) & ~WS_EX_TRANSPARENT;
+			SetWindowLong(hWnd, GWL_EXSTYLE, clearedStyle);
+
 			// Ensure WS_EX_LAYERED remains so we can control alpha smoothly
 			if ((GetWindowLong(hWnd, GWL_EXSTYLE) & WS_EX_LAYERED) == 0)
 			{
 				SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
 			}
 
-			// Set full opacity again
-			SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
+			// Start fade-in from transparent to fully opaque
+			FadeWindow(hWnd, 0, 255);
 
+			// Bring window to top immediately so it’s in front while fading in
 			window.BringToTop();
 		}
 
@@ -74,16 +110,21 @@ namespace StageManager.Strategies
 				_originalStyles[hWnd] = GetWindowLong(hWnd, GWL_EXSTYLE);
 			}
 
-			// Enable layered + transparent styles
+			// Enable layered + transparent styles so we can animate alpha and disable hit-testing afterwards
 			var newStyle = GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED | WS_EX_TRANSPARENT;
 			SetWindowLong(hWnd, GWL_EXSTYLE, newStyle);
 
-			// Make fully transparent (alpha = 0)
-			bool result = SetLayeredWindowAttributes(hWnd, 0, 0, LWA_ALPHA);
+			// Instantly hide window by setting alpha to 0 (no fade) so there is no brief overlap
+			SetLayeredWindowAttributes(hWnd, 0, 0, LWA_ALPHA);
 
-			if (!result)
+			// Keep mouse-through flag enabled so clicks pass to visible windows underneath
+			// Window remains present for live thumbnails.
+			
+			// If layered transparency fails, fall back to moving window off-screen handled below.
+			
+			// Additional fallback: move window off-screen when transparency is not supported
+			if (!_supportsLayeredTransparency(hWnd))
 			{
-				// Fallback: move off-screen if transparency not supported
 				try
 				{
 					// Store original position only once
@@ -102,6 +143,12 @@ namespace StageManager.Strategies
 				}
 				catch { /* ignored */ }
 			}
+		}
+
+		private static bool _supportsLayeredTransparency(IntPtr hWnd)
+		{
+			// Simple probe – attempt to set alpha 1 and check success
+			return SetLayeredWindowAttributes(hWnd, 0, 1, LWA_ALPHA);
 		}
 	}
 }

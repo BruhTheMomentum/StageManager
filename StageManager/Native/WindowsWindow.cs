@@ -173,12 +173,21 @@ namespace StageManager.Native
 				// therefore be excluded from layout management and scene handling.
 				var style = Win32.GetWindowStyleLongPtr(_handle);
 
-				// Require both minimize & maximize boxes.  Windows that provide these buttons will
-				// always also surface a close button even if they don’t set WS_SYSMENU (Chromium,
-				// VS Code, etc.).
-				bool hasCaptionControls = style.HasFlag(Win32.WS.WS_MINIMIZEBOX) &&
-										  style.HasFlag(Win32.WS.WS_MAXIMIZEBOX) &&
-										  style.HasFlag(Win32.WS.WS_CAPTION);
+				// Detect whether the window exposes any kind of standard window chrome. Many modern
+				// applications (Visual Studio, Chrome, etc.) draw their own caption bar and therefore
+				// clear the traditional MINIMIZE/MAXIMIZE style bits even though the buttons are
+				// visibly present. Treat a window as ‘layoutable’ when it has *any* of the following
+				// indicators instead of requiring all three:
+				//   • WS_CAPTION  standard title bar
+				//   • WS_SYSMENU  has system menu / close button
+				//   • WS_MINIMIZEBOX / WS_MAXIMIZEBOX any of the caption buttons available
+				//   • WS_THICKFRAME  sizeable frame (classic desktop apps)
+				bool hasCaptionControls =
+					style.HasFlag(Win32.WS.WS_CAPTION) ||
+					style.HasFlag(Win32.WS.WS_SYSMENU) ||
+					style.HasFlag(Win32.WS.WS_MINIMIZEBOX) ||
+					style.HasFlag(Win32.WS.WS_MAXIMIZEBOX) ||
+					style.HasFlag(Win32.WS.WS_THICKFRAME);
 
 				// We experimented with runtime accessibility checks (GetTitleBarInfo) but that
 				// excluded legitimate windows that draw a custom title bar. Rely solely on

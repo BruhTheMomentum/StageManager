@@ -23,6 +23,10 @@ namespace StageManager
 		private DateTime _lastDesktopToggle = DateTime.MinValue;
 		private IWindow _lastFocusedWindow;
 
+#if DEBUG
+		private const bool DEBUG_SCENE_MERGE = true;
+#endif
+
 		public event EventHandler<SceneChangedEventArgs> SceneChanged;
 		public event EventHandler<CurrentSceneSelectionChangedEventArgs> CurrentSceneSelectionChanged;
 
@@ -30,6 +34,34 @@ namespace StageManager
 		private IWindowStrategy WindowStrategy { get; } = new OpacityWindowStrategy();
 
 		public WindowsManager WindowsManager { get; }
+
+		private const string TeamsProcessName1 = "ms-teams.exe";
+		private const string TeamsProcessName2 = "teams.exe";
+
+		/// <summary>
+		/// Determines whether the given window should stay visible across scenes and therefore must not
+		/// participate in Stage Manager scene logic. Currently hard-codes an exception for the Microsoft
+		/// Teams ‘Meeting compact’ floating pop-up.
+		/// </summary>
+		private bool IsPersistentWindow(IWindow window)
+		{
+			if (window == null)
+				return false;
+
+			// Quick process check – bail out early if it is definitely not Teams
+			var exe = window.ProcessFileName ?? string.Empty;
+			if (!string.Equals(exe, TeamsProcessName1, StringComparison.OrdinalIgnoreCase) &&
+				!string.Equals(exe, TeamsProcessName2, StringComparison.OrdinalIgnoreCase))
+			{
+				return false;
+			}
+
+			// Identify the floating meeting pop-up through its title. The compact meeting view always contains
+			// the words “Meeting” and “compact”. Adjust the checks here if Microsoft changes the wording.
+			var title = window.Title ?? string.Empty;
+			return title.IndexOf("Meeting", StringComparison.OrdinalIgnoreCase) >= 0 &&
+			       title.IndexOf("compact", StringComparison.OrdinalIgnoreCase) >= 0;
+		}
 
 		public SceneManager(WindowsManager windowsManager)
 		{
@@ -59,6 +91,17 @@ namespace StageManager
 			// Determine which window should stay visible (e.g. the one that currently has focus)
 			var exemptHandle = _lastFocusedWindow?.Handle ?? Win32.GetForegroundWindow();
 
+			// Restore every known window (some might not be part of any scene anymore)
+			foreach (var w in WindowsManager?.Windows ?? Array.Empty<IWindow>())
+			{
+				WindowStrategy.Show(w);
+				if (w.Handle != exemptHandle)
+				{
+					w.ShowMinimized();
+				}
+			}
+
+			// Original per-scene clean-up kept for completeness (will be mostly redundant)
 			foreach (var scene in _scenes)
 			{
 				foreach (var w in scene.Windows)
@@ -85,6 +128,21 @@ namespace StageManager
 			if (type == WindowUpdateType.Foreground)
 			{
 				_lastFocusedWindow = window; // remember for scene restore
+				SwitchToSceneByWindow(window).SafeFireAndForget();
+			}
+			// Some applications surface a previously hidden window with a simple ShowWindow
+			// call that does NOT bring the window to the foreground. In that case the
+			// window is visible but still carries WS_EX_TRANSPARENT from our hide logic
+			// and is therefore not clickable. Treat a Show event as a signal that the
+			// application wants to interact again and restore normal interactivity.
+			else if (type == WindowUpdateType.Show)
+			{
+				// Remove transparency / mouse-through by restoring original styles
+				WindowStrategy.Show(window);
+
+				// Bring Stage Manager’s focus model in sync by switching to the scene
+				// containing this window. This guarantees proper stacking order and
+				// icon visibility handling.
 				SwitchToSceneByWindow(window).SafeFireAndForget();
 			}
 		}
@@ -187,11 +245,38 @@ namespace StageManager
 				if (scene.Windows.Any())
 				{
 					SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Updated));
+
+					// If the removed window was focused, ensure another window from the same scene is shown shortly.
+					if (ReferenceEquals(scene, _current))
+					{
+						Task.Run(async () =>
+						{
+							await Task.Delay(300);
+							var first = scene.Windows.FirstOrDefault();
+							if (first is object)
+							{
+								// Reveal and focus the first remaining window of the current scene
+								WindowStrategy.Show(first);
+								first.Focus();
+							}
+						});
+					}
 				}
 				else
 				{
 					_scenes.Remove(scene);
 					SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Removed));
+
+					// If current scene became empty, switch to the first available scene after a short delay.
+					if (ReferenceEquals(scene, _current))
+					{
+						Task.Run(async () =>
+						{
+							await Task.Delay(200);
+							var fallback = _scenes.FirstOrDefault(s => s.Windows.Any());
+							await SwitchTo(fallback).ConfigureAwait(false);
+						});
+					}
 				}
 			}
 		}
@@ -209,6 +294,9 @@ namespace StageManager
 
 		private async Task SwitchToSceneByWindow(IWindow window)
 		{
+			// Keep persistent windows (e.g. Teams meeting pop-ups) outside of scene logic.
+			if (IsPersistentWindow(window))
+				return;
 			var scene = FindSceneForWindow(window);
 			if (scene is null)
 			{
@@ -222,6 +310,9 @@ namespace StageManager
 
 		private async Task SwitchToSceneByNewWindow(IWindow window)
 		{
+			// Keep persistent windows (e.g. Teams meeting pop-ups) outside of scene logic.
+			if (IsPersistentWindow(window))
+				return;
 			var existentScene = FindSceneForProcess(GetWindowGroupKey(window));
 			var scene = existentScene ?? new Scene(window.ProcessName, window);
 
@@ -282,28 +373,46 @@ namespace StageManager
 			{
 				_suspend = true;
 
-				var otherWindows = GetSceneableWindows().Except(scene?.Windows ?? Array.Empty<IWindow>()).ToArray();
+				// Determine the window that currently has the keyboard focus (foreground).
+				var foregroundHandle = Win32.GetForegroundWindow();
+
+				// Hide every window that does NOT belong to the target scene **and** is not the foreground window.
+				var otherWindows = GetSceneableWindows()
+					.Except(scene?.Windows ?? Array.Empty<IWindow>())
+					.Where(w => w.Handle != foregroundHandle)
+					.ToArray();
 
 				var prior = _current;
 				_current = scene;
 
 				foreach (var s in _scenes)
-					{s.IsSelected = s.Equals(scene);}
+				{
+					s.IsSelected = s.Equals(scene);
+				}
 
+				// Phase 1: start fading out windows that do NOT belong to the target scene.
+				foreach (var o in otherWindows)
+					WindowStrategy.Hide(o);
+
+				// Phase 2: bring in target-scene windows.
 				if (scene is object)
 				{
 					foreach (var w in scene.Windows)
-						WindowStrategy.Show(w);
+					{
+						// Never forcibly show windows that are minimised / sitting in the tray – keep them hidden.
+						if (!w.IsMinimized)
+							WindowStrategy.Show(w);
+						else
+							WindowStrategy.Hide(w);
+					}
 
-					// Determine which window should get focus after restore
-					if (_lastFocusedWindow is object && scene.Windows.Contains(_lastFocusedWindow))
+					// Determine which window should get focus after restore – pick the last   
+					// focused window if it belongs to the scene and is not minimised, otherwise the first visible one.
+					if (_lastFocusedWindow is object && scene.Windows.Contains(_lastFocusedWindow) && !_lastFocusedWindow.IsMinimized)
 						focusCandidate = _lastFocusedWindow;
 					else
-						focusCandidate = scene.Windows.FirstOrDefault();
+						focusCandidate = scene.Windows.FirstOrDefault(w => !w.IsMinimized);
 				}
-
-				foreach (var o in otherWindows)
-					WindowStrategy.Hide(o);
 
 				CurrentSceneSelectionChanged?.Invoke(this, new CurrentSceneSelectionChangedEventArgs(prior, _current));
 
@@ -330,6 +439,11 @@ namespace StageManager
 
 		public Task MoveWindow(Scene sourceScene, IWindow window, Scene targetScene)
 		{
+#if DEBUG
+			// Capture scene titles before any mutation for meaningful debug output
+			string sourceTitle = sourceScene?.Title;
+			string targetTitle = targetScene?.Title;
+#endif
 			try
 			{
 				_suspend = true;
@@ -345,6 +459,12 @@ namespace StageManager
 
 				if (!sourceScene.Windows.Any())
 				{
+#if DEBUG
+					if (DEBUG_SCENE_MERGE)
+					{
+						System.Diagnostics.Debug.WriteLine($"[SceneMerge] Merged scene '{sourceTitle}' into '{targetTitle}' – source scene removed");
+					}
+#endif
 					_scenes.Remove(sourceScene);
 					SceneChanged?.Invoke(this, new SceneChangedEventArgs(sourceScene, window, ChangeType.Removed));
 				}
@@ -393,16 +513,18 @@ namespace StageManager
 				await MoveWindow(sourceScene, window, _current).ConfigureAwait(false);
 		}
 
-		private IEnumerable<IWindow> GetSceneableWindows() => WindowsManager?.Windows?.Where(w => w.CanLayout && !string.IsNullOrEmpty(w.ProcessFileName) && !string.IsNullOrEmpty(w.Title));
+		private IEnumerable<IWindow> GetSceneableWindows() => WindowsManager?.Windows?.Where(w => !IsPersistentWindow(w) && w.CanLayout && !string.IsNullOrEmpty(w.ProcessFileName) && !string.IsNullOrEmpty(w.Title));
 
 		public IEnumerable<Scene> GetScenes()
 		{
 			if (_scenes is null)
 			{
 				_scenes = GetSceneableWindows()
-							.GroupBy(GetWindowGroupKey)
-							.Select(group => new Scene(group.Key, group.ToArray()))
-							.ToList();
+					// Ignore windows that aren't currently visible (e.g. minimised or hidden) during initial startup.
+					.Where(w => !w.IsMinimized && Win32.IsWindowVisible(w.Handle))
+					.GroupBy(GetWindowGroupKey)
+					.Select(group => new Scene(group.Key, group.ToArray()))
+					.ToList();
 			}
 
 			return _scenes;
@@ -410,6 +532,12 @@ namespace StageManager
 
 		public IEnumerable<IWindow> GetCurrentWindows() => _current?.Windows ?? GetSceneableWindows();
 
-		private string GetWindowGroupKey(IWindow window) => window.ProcessName;
+		// Group windows by **process id** instead of the process name so that every
+		// newly-launched program (i.e. a new process, even if it shares the same
+		// executable name with another instance) gets its **own** scene.
+		//
+		// This fulfils the requirement that launching a new program should ALWAYS
+		// create a separate scene.
+		private string GetWindowGroupKey(IWindow window) => window.ProcessId.ToString();
 	}
 }
