@@ -1,3 +1,9 @@
+// .vscode/launch.json
 {
-    "dotnet.defaultSolution": "StageManager.sln"
+    "name": ".NET Launch (StageManager)",
+    "type": "coreclr",              // .NET debugger
+    "request": "launch",
+    "project": "${workspaceFolder}/StageManager/StageManager.csproj",
+    "console": "internalConsole",   // <- sends Console.WriteLine to Debug Console too
+    "stopAtEntry": false
 }
